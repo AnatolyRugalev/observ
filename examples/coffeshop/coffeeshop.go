@@ -27,10 +27,11 @@ type CoffeeShop struct {
 	// TODO: logs
 	metrics cofeeMetrics
 
-	baristas chan order
+	timeScale int
 
-	stateMu sync.Mutex
-	state   State
+	stateMu  sync.Mutex
+	state    State
+	baristas chan order
 }
 
 type CoffeeKind string
@@ -92,18 +93,19 @@ type order struct {
 	to     chan Coffee
 }
 
-func NewCoffeeShop(registry prometheus.Registerer) *CoffeeShop {
+func NewCoffeeShop(registry prometheus.Registerer, timeScale int) *CoffeeShop {
 	m := promauto.With(registry)
 	return &CoffeeShop{
+		timeScale: timeScale,
 		metrics: cofeeMetrics{
 			cups: m.NewCounterVec(prometheus.CounterOpts{
 				Namespace: "observ",
-				Subsystem: "coffee_maker",
+				Subsystem: "coffee_shop",
 				Name:      "cups",
 			}, []string{"kind"}),
 			extras: m.NewCounterVec(prometheus.CounterOpts{
 				Namespace: "observ",
-				Subsystem: "coffee_maker",
+				Subsystem: "coffee_shop",
 				Name:      "extras",
 			}, []string{"extra"}),
 		},
@@ -151,29 +153,40 @@ func (c *CoffeeShop) Open(ctx context.Context, baristasNum int) error {
 	}
 	c.state = StateOpen
 	c.baristas = make(chan order, 1)
-	go func() {
+	wg := sync.WaitGroup{}
+	for i := 0; i < baristasNum; i++ {
+		wg.Add(1)
+		go c.baristaLoop(&wg)
+	}
+	go func(wg *sync.WaitGroup) {
 		<-ctx.Done()
 		c.stateMu.Lock()
 		c.state = StateFinalizing
-		c.stateMu.Unlock()
 		// baristas should make coffee for commited orders
 		close(c.baristas)
-		// TODO: switch state to Closed when all baristas are finished
-	}()
-	for i := 0; i < baristasNum; i++ {
-		go c.baristaLoop()
-	}
+		c.stateMu.Unlock()
+		wg.Wait()
+		c.stateMu.Lock()
+		c.state = StateClosed
+		c.baristas = nil
+		c.stateMu.Unlock()
+	}(&wg)
 	return nil
 }
 
-func (c *CoffeeShop) baristaLoop() {
+func (c *CoffeeShop) baristaLoop(wg *sync.WaitGroup) {
 	defer func() {
+		wg.Done()
 		if p := recover(); p != nil {
 			// TODO: funerals
 		}
 	}()
 	for order := range c.baristas {
-		time.Sleep(order.coffee.Duration()) // sleeping at work, bastards?
+		time.Sleep(order.coffee.Duration() / time.Duration(c.timeScale)) // sleeping at work, bastards?
+		c.metrics.cups.WithLabelValues(string(order.coffee.Kind)).Inc()
+		for _, extra := range order.coffee.Extras {
+			c.metrics.extras.WithLabelValues(string(extra)).Inc()
+		}
 		order.to <- order.coffee
 	}
 }
