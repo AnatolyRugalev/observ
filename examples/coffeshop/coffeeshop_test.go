@@ -86,4 +86,8 @@ func (s *CoffeeShopTestSuite) TestPlaceOrder() {
 		"espresso":  1,
 		"cappucino": 2,
 	})
+
+	s.prom.Assert("cups").Labels("kind", "cappucino").Greater(1)
+
+	s.prom.Require("cups").Labels("kind", "espresso").LessOrEqual(100)
 }
