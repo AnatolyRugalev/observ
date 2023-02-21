@@ -8,11 +8,43 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/samber/lo"
+	"github.com/sirupsen/logrus"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric/global"
+	"go.opentelemetry.io/otel/metric/instrument"
+	"log"
 )
 
-type cofeeMetrics struct {
-	cups   *prometheus.CounterVec
-	extras *prometheus.CounterVec
+var meter = global.Meter("coffeeshop")
+
+var metrics = coffeeMetrics{
+	cups: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "observ",
+		Subsystem: "coffee_shop",
+		Name:      "cups",
+	}, []string{"kind"}),
+	extras: promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "observ",
+		Subsystem: "coffee_shop",
+		Name:      "extras",
+	}, []string{"extra"}),
+	latency: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "observ",
+		Subsystem: "coffee_shop",
+		Name:      "latency",
+	}, []string{"kind"}),
+	cupsCounter: lo.Must(meter.Int64Counter("cups")),
+	latencyHist: lo.Must(meter.Float64Histogram("latency")),
+}
+
+type coffeeMetrics struct {
+	cups    *prometheus.CounterVec
+	extras  *prometheus.CounterVec
+	latency *prometheus.HistogramVec
+
+	cupsCounter instrument.Int64Counter
+	latencyHist instrument.Float64Histogram
 }
 
 type State int
@@ -24,9 +56,6 @@ const (
 )
 
 type CoffeeShop struct {
-	// TODO: logs
-	metrics cofeeMetrics
-
 	timeScale int
 
 	stateMu  sync.Mutex
@@ -40,7 +69,7 @@ const (
 	CoffeeEspresso  = CoffeeKind("espresso")
 	CoffeeLungo     = CoffeeKind("lungo")
 	CoffeeCafeLatte = CoffeeKind("cafe-latte")
-	CoffeeCappucino = CoffeeKind("cappucino")
+	CoffeeCappucino = CoffeeKind("cappuccino")
 	CofeeFlatWhite  = CoffeeKind("flat-white")
 )
 
@@ -93,22 +122,9 @@ type order struct {
 	to     chan Coffee
 }
 
-func NewCoffeeShop(registry prometheus.Registerer, timeScale int) *CoffeeShop {
-	m := promauto.With(registry)
+func NewCoffeeShop(timeScale int) *CoffeeShop {
 	return &CoffeeShop{
 		timeScale: timeScale,
-		metrics: cofeeMetrics{
-			cups: m.NewCounterVec(prometheus.CounterOpts{
-				Namespace: "observ",
-				Subsystem: "coffee_shop",
-				Name:      "cups",
-			}, []string{"kind"}),
-			extras: m.NewCounterVec(prometheus.CounterOpts{
-				Namespace: "observ",
-				Subsystem: "coffee_shop",
-				Name:      "extras",
-			}, []string{"extra"}),
-		},
 	}
 }
 
@@ -118,6 +134,7 @@ func (c *CoffeeShop) PlaceOrder(ctx context.Context, coffee Coffee) (<-chan Coff
 	c.stateMu.Lock()
 	state := c.state
 	c.stateMu.Unlock()
+	logrus.Info("Placing order")
 	switch state {
 	case StateClosed:
 		return nil, fmt.Errorf("sorry, coffeeshop is closed")
@@ -182,10 +199,16 @@ func (c *CoffeeShop) baristaLoop(wg *sync.WaitGroup) {
 		}
 	}()
 	for order := range c.baristas {
+		start := time.Now()
 		time.Sleep(order.coffee.Duration() / time.Duration(c.timeScale)) // sleeping at work, bastards?
-		c.metrics.cups.WithLabelValues(string(order.coffee.Kind)).Inc()
+		log.Printf("Sleepy barista woke up")
+		latency := time.Since(start)
+		metrics.cups.WithLabelValues(string(order.coffee.Kind)).Inc()
+		metrics.cupsCounter.Add(context.Background(), 1, attribute.String("kind", string(order.coffee.Kind)))
+		metrics.latency.WithLabelValues(string(order.coffee.Kind)).Observe(latency.Seconds())
+		metrics.latencyHist.Record(context.Background(), latency.Seconds(), attribute.String("kind", string(order.coffee.Kind)))
 		for _, extra := range order.coffee.Extras {
-			c.metrics.extras.WithLabelValues(string(extra)).Inc()
+			metrics.extras.WithLabelValues(string(extra)).Inc()
 		}
 		order.to <- order.coffee
 	}

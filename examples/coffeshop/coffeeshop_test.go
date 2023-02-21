@@ -2,19 +2,29 @@ package coffeshop
 
 import (
 	"context"
-	"testing"
-	"time"
-
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/suite"
+	"testing"
 
-	"github.com/AnatolyRugalev/observ/prometheus/promtest"
+	"github.com/AnatolyRugalev/observ/collectors/logrust"
+	"github.com/AnatolyRugalev/observ/collectors/otelt"
+	"github.com/AnatolyRugalev/observ/collectors/prometheust"
+	"github.com/AnatolyRugalev/observ/collectors/stdlogt"
+	"github.com/AnatolyRugalev/observ/logq"
+	"github.com/AnatolyRugalev/observ/logt"
+	"github.com/AnatolyRugalev/observ/logt/logwait"
+	"github.com/AnatolyRugalev/observ/metrcollect/metrmulti"
+	"github.com/AnatolyRugalev/observ/metrq"
+	"github.com/AnatolyRugalev/observ/metrt"
+	"github.com/prometheus/client_golang/prometheus"
+	"go.opentelemetry.io/otel/metric/global"
+	"go.opentelemetry.io/otel/sdk/metric"
+	"log"
+	"time"
 )
 
 type CoffeeShopTestSuite struct {
 	suite.Suite
 
-	prom *promtest.Tester
 	shop *CoffeeShop
 }
 
@@ -23,20 +33,9 @@ func TestCoffeeShopTestSuite(t *testing.T) {
 }
 
 func (s *CoffeeShopTestSuite) SetupTest() {
-	// Initialize promtest.Tester
-	s.prom = promtest.New(
-		// testing.T is necessary, all following options are optional
-		s.T(),
-		// Provide metrics prefix to simplify testing
-		promtest.WithPrefix("observ_coffee_shop_"),
-		// When no registry provided, promtest creates a new registry
-		promtest.WithRegistry(prometheus.NewRegistry()),
-		// Set polling rate for eventual assertion (e.g. wait until metric value becomes equal X)
-		promtest.WithPollingRate(100*time.Millisecond),
-	)
 	// promtest.Tester implements prometheus.Registerer.
 	// CoffeeShop registers metrics upon creation
-	s.shop = NewCoffeeShop(s.prom, 60)
+	s.shop = NewCoffeeShop(60)
 }
 
 func (s *CoffeeShopTestSuite) TestClosed() {
@@ -54,6 +53,15 @@ func (s *CoffeeShopTestSuite) TestOpenNegativeBaristas() {
 }
 
 func (s *CoffeeShopTestSuite) TestPlaceOrder() {
+
+	otelCollector := otelt.New()
+	mt := metrt.New(s.T(), metrmulti.Multi(prometheust.New(prometheus.DefaultGatherer), otelCollector))
+	provider := metric.NewMeterProvider(metric.WithReader(otelCollector))
+	global.SetMeterProvider(provider)
+
+	log.SetPrefix("[coffeeshop] ")
+	log.SetFlags(log.Lmsgprefix | log.LUTC | log.Llongfile | log.Lmicroseconds | log.Ldate | log.Ltime)
+	lt := logt.Start(s.T(), logrust.Default(), stdlogt.Default())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	err := s.shop.Open(ctx, 3)
@@ -62,32 +70,52 @@ func (s *CoffeeShopTestSuite) TestPlaceOrder() {
 	ch, err := s.shop.PlaceOrder(orderCtx, Coffee{Kind: CoffeeEspresso})
 	orderCancel()
 	s.Require().NoError(err)
+	lt.Wait(logwait.For(2 * time.Second)).Require().Count(1)
 	coffee := <-ch
 	s.Require().Equal(Coffee{Kind: CoffeeEspresso}, coffee)
+	lt.Collect().Message("Placing order").Require().Count(1)
 
-	orderCtx, orderCancel = context.WithCancel(ctx)
-	ch, err = s.shop.PlaceOrder(orderCtx, Coffee{Kind: CoffeeCappucino})
-	orderCancel()
-	s.Require().NoError(err)
-	coffee = <-ch
-	s.Require().Equal(Coffee{Kind: CoffeeCappucino}, coffee)
+	logt.Scope(s.T(), func(lt2 logt.LogT) {
+		lt.Scope(func(lt logt.LogT) {
+			orderCtx, orderCancel = context.WithCancel(ctx)
+			ch, err = s.shop.PlaceOrder(orderCtx, Coffee{Kind: CoffeeCappucino})
+			orderCancel()
+			s.Require().NoError(err)
+			coffee = <-ch
+			s.Require().Equal(Coffee{Kind: CoffeeCappucino}, coffee)
+		}).Message("Placing order").Require().Count(1)
 
-	orderCtx, orderCancel = context.WithCancel(ctx)
-	ch, err = s.shop.PlaceOrder(orderCtx, Coffee{Kind: CoffeeCappucino})
-	orderCancel()
-	s.Require().NoError(err)
-	coffee = <-ch
-	s.Require().Equal(Coffee{Kind: CoffeeCappucino}, coffee)
+		lt.Collect().Message("Placing order").Require().Count(2)
+		lt2.Collect(logq.Message("Placing order")).Require().Count(1)
 
-	s.prom.Assert("cups", "kind", "espresso").Equal(1)
-	s.prom.Assert("cups", "kind", "cappucino").Equal(2)
+		orderCtx, orderCancel = context.WithCancel(ctx)
+		delta := mt.Scope(func(mq metrt.MetrT) {
+			ch, err = s.shop.PlaceOrder(orderCtx, Coffee{Kind: CoffeeCappucino})
+			orderCancel()
+			s.Require().NoError(err)
+			coffee = <-ch
+			s.Require().Equal(Coffee{Kind: CoffeeCappucino}, coffee)
+		})
+		delta.And(metrq.Name("observ_coffee_shop_cups")).Assert().Sum(1)
 
-	s.prom.Assert("cups").Group("kind").EqualMap(promtest.M{
-		"espresso":  1,
-		"cappucino": 2,
-	})
+		lt.Collect().Message("Placing order").Require().Count(3)
 
-	s.prom.Assert("cups").Labels("kind", "cappucino").Greater(1)
+	}, logrust.Default()).Message("Placing order").Require().Count(2)
 
-	s.prom.Require("cups").Labels("kind", "espresso").LessOrEqual(100)
+	mt.Collect().
+		Where(metrq.Scope("coffeeshop"), metrq.Name("cups")).
+		Group(metrq.ByAttr("kind")).
+		Assert().
+		Sum(map[string]int64{
+			"cappuccino": 2,
+			"espresso":   1,
+		})
+	mt.Collect().
+		And(metrq.Name("observ_coffee_shop_cups")).
+		Group(metrq.ByAttr("kind")).
+		Require().
+		Sum(map[string]int64{
+			"cappuccino": 2,
+			"espresso":   1,
+		})
 }
