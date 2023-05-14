@@ -49,7 +49,7 @@ func (c *Collector) Fire(entry *logrus.Entry) error {
 	(*sink).Add(logq.Record{
 		Time:       entry.Time,
 		Message:    entry.Message,
-		Attributes: data.(logrus.Fields),
+		Attributes: logq.Attributes(data.(logrus.Fields)),
 	})
 	return nil
 }

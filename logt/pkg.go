@@ -1,3 +1,5 @@
+//go:build !logt
+
 package logt
 
 import (
@@ -28,7 +30,7 @@ func Start(t *testing.T, opts ...Option) LogT {
 	return New(t, opts...).Start()
 }
 
-func Scope(t *testing.T, f func(lgt LogT), opts ...Option) Records {
+func Scope(t *testing.T, f func(lgt LogT), opts ...Option) Filter {
 	t.Helper()
 	return New(t, opts...).Scope(f)
 }

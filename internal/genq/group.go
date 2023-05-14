@@ -5,9 +5,7 @@ import (
 	"sync"
 )
 
-type GroupFunc[K comparable, V any] func(v V) K
-
-func NewGroup[K comparable, V any](fn GroupFunc[K, V], sources ...Source[V]) *Group[K, V] {
+func NewGroup[K comparable, V any](fn GroupFunc[K, V], sources ...Promise[V]) *Group[K, V] {
 	return &Group[K, V]{
 		fn:      fn,
 		sources: sources,
@@ -15,30 +13,23 @@ func NewGroup[K comparable, V any](fn GroupFunc[K, V], sources ...Source[V]) *Gr
 }
 
 type Group[K comparable, V any] struct {
-	sources []Source[V]
+	sources []Promise[V]
 	fn      GroupFunc[K, V]
 
 	once     sync.Once
-	resolved []V
+	resolved Slice[V]
 	index    map[K][]int
 }
 
-func (g *Group[K, V]) Resolve() []V {
+func (g *Group[K, V]) Resolve() Slice[V] {
 	g.once.Do(func() {
 		max := 0
-		resolved := lo.Map(g.sources, func(s Source[V], index int) []V {
+		resolved := lo.Map(g.sources, func(s Promise[V], index int) Slice[V] {
 			return s.Resolve()
 		})
-		capacity := lo.SumBy(resolved, func(vv []V) int {
-			l := len(vv)
-			if l > max {
-				max = l
-			}
-			return l
-		})
-		var zero K
-		g.resolved = make([]V, 0, capacity)
+		g.resolved = Slice[V]{}.Merge(resolved...)
 		g.index = make(map[K][]int, max)
+		var zero K
 		for _, vv := range resolved {
 			for _, v := range vv {
 				key := g.fn(v)
@@ -53,12 +44,12 @@ func (g *Group[K, V]) Resolve() []V {
 	return g.resolved
 }
 
-func (g *Group[K, V]) Flat() []V {
+// Flat returns all items in a group as a slice.
+func (g *Group[K, V]) Flat() Slice[V] {
 	return g.Resolve()
 }
 
-type AggregationFunc[V any] func(values []V) V
-
+// Aggregate performs an aggregation, and returns results as a map
 func (g *Group[K, V]) Aggregate(fn AggregationFunc[V]) map[K]V {
 	g.Resolve()
 	result := make(map[K]V, len(g.index))
@@ -71,20 +62,10 @@ func (g *Group[K, V]) Aggregate(fn AggregationFunc[V]) map[K]V {
 	return result
 }
 
-func (g *Group[K, V]) AsMap() map[K][]V {
+// AggregateFlat performs an aggregation, and returns results as a slice.
+func (g *Group[K, V]) AggregateFlat(fn AggregationFunc[V]) Slice[V] {
 	g.Resolve()
-	result := make(map[K][]V, len(g.index))
-	for k, indexes := range g.index {
-		result[k] = lo.Map(indexes, func(idx int, _ int) V {
-			return g.resolved[idx]
-		})
-	}
-	return result
-}
-
-func (g *Group[K, V]) AggregateFlat(fn AggregationFunc[V]) []V {
-	g.Resolve()
-	result := make([]V, 0, len(g.index))
+	result := make(Slice[V], 0, len(g.index))
 	for _, indexes := range g.index {
 		item := fn(lo.Map(indexes, func(idx int, _ int) V {
 			return g.resolved[idx]
@@ -92,4 +73,37 @@ func (g *Group[K, V]) AggregateFlat(fn AggregationFunc[V]) []V {
 		result = append(result, item)
 	}
 	return result
+}
+
+// Key returns a list of items grouped by a given key value.
+func (g *Group[K, V]) Key(key K) Slice[V] {
+	g.Resolve()
+	result := make([]V, 0, len(g.index[key]))
+	for _, i := range g.index[key] {
+		result = append(result, g.resolved[i])
+	}
+	return result
+}
+
+// AsMap returns grouped values as a map
+func (g *Group[K, V]) AsMap() map[K]Slice[V] {
+	g.Resolve()
+	result := make(map[K]Slice[V], len(g.index))
+	for k := range g.index {
+		result[k] = g.Key(k)
+	}
+	return result
+}
+
+func (g *Group[K, V]) Merge(groups ...*Group[K, V]) *Group[K, V] {
+	merged := append([]Promise[V]{g})
+	for _, g := range groups {
+		merged = append(merged, g)
+	}
+	return NewGroup[K, V](g.fn, merged...)
+}
+
+func (g *Group[K, V]) Count() int {
+	g.Resolve()
+	return len(g.index)
 }

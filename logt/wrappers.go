@@ -2,69 +2,30 @@ package logt
 
 import (
 	"github.com/AnatolyRugalev/observ/logq"
+	"testing"
+	"github.com/AnatolyRugalev/observ/internal/gent"
 )
 
-type Records struct {
-	T      LogT        `chaingen:"-"`
-	filter logq.Filter `chaingen:"wrap(*)=wrapFilter,wrap(*)=wrapGroup,-Resolve"`
+// Filter is a slice of records
+type Filter struct {
+	t      *testing.T
+	filter logq.Filter `chaingen:"*,-Resolve,wrap(*)=wrapGroup"`
 }
 
-func (f Records) wrapGroup(group logq.Group[string]) Group[string] {
+func (f Filter) wrapGroup(group logq.Group[string]) Group[string] {
 	return Group[string]{
-		T:     f.T,
+		t:     f.t,
 		group: group,
 	}
 }
 
-func (f Records) wrapFilter(filter logq.Filter) Records {
-	return Records{
-		T:      f.T,
-		filter: filter,
-	}
-}
-
-func (f Records) Assert() Assert {
+func (f Filter) Assert() Assert {
 	return Assert{
-		filter: f,
-	}
-}
-
-func (f Records) Require() Require {
-	return Require{
-		assert: f.Assert(),
+		assert: gent.NewAssert[logq.Record](f.t, f.filter),
 	}
 }
 
 type Group[K comparable] struct {
-	T     LogT          `chaingen:"-"`
-	group logq.Group[K] `chaingen:"wrap(*)=wrap(*)=wrapFilter,wrap(*)=wrapGroup"`
-}
-
-func (g Group[K]) wrapGroup(group logq.Group[string]) Group[string] {
-	return Group[string]{
-		T:     g.T,
-		group: group,
-	}
-}
-
-func (g Group[K]) wrapFilter(filter logq.Filter) Records {
-	return Records{
-		T:      g.T,
-		filter: filter,
-	}
-}
-
-func (g Group[K]) Assert() AssertGroup[K] {
-	return AssertGroup[K]{
-		group: Group[K]{
-			T:     g.T,
-			group: g.group,
-		},
-	}
-}
-
-func (g Group[K]) Require() RequireGroup[K] {
-	return RequireGroup[K]{
-		assert: g.Assert(),
-	}
+	t     *testing.T
+	group logq.Group[K] `chaingen:"*,wrap(*)=wrapGroup"`
 }

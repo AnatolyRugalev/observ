@@ -69,6 +69,7 @@ func TestHelloLogrus(t *testing.T) {
 		"B":    1,
 		"Toly": 1,
 	})
+	logq.FilterFunc(nil).Message("").Attr()
 }
 
 func TestHelloPrometheus(t *testing.T) {

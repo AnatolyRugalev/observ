@@ -23,7 +23,7 @@ func (s *Sink) Add(r Record) {
 	if s.parent != nil {
 		s.parent.Add(r)
 	}
-	if !s.filter(r) {
+	if s.filter != nil && !s.filter(r) {
 		return
 	}
 	s.mu.Lock()

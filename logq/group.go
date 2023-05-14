@@ -1,47 +1,36 @@
 package logq
 
 import (
-	"fmt"
 	"github.com/AnatolyRugalev/observ/internal/genq"
 	"github.com/samber/lo"
 )
 
-type AggregationFunc = genq.AggregationFunc[Record]
-
-type GroupFunc = genq.GroupFunc[string, Record]
-
-func NewGroup[K comparable](fn genq.GroupFunc[K, Record], sources ...Source) Group[K] {
+func NewGroup[K comparable](fn genq.GroupFunc[K, Record], sources ...Promise) Group[K] {
 	return Group[K]{
 		group: genq.NewGroup[K, Record](fn, sources...),
 	}
 }
 
 type Group[K comparable] struct {
-	group *genq.Group[K, Record]
+	group *genq.Group[K, Record] `chaingen:"*,unwrap=unwrap,wrap(*)=wrap|slice|sliceMap"`
 }
 
-func (a Group[K]) Aggregate(fn AggregationFunc) map[K]Record {
-	return a.group.Aggregate(fn)
+func (Group[K]) slice(slice genq.Slice[Record]) Records {
+	return Records(slice)
 }
 
-func (a Group[K]) AggregateFlat(fn AggregationFunc) Records {
-	return a.group.AggregateFlat(fn)
-}
-
-func ByMessage() GroupFunc {
-	return func(v Record) string {
-		return v.Message
-	}
-}
-
-func ByAttr(name string) GroupFunc {
-	return func(v Record) string {
-		return fmt.Sprintf("%s", v.Attributes[name])
-	}
-}
-
-func (a Group[K]) Count() map[K]int {
-	return lo.MapValues(a.group.AsMap(), func(records []Record, _ K) int {
-		return len(records)
+func (g Group[K]) sliceMap(sliceMap map[K]genq.Slice[Record]) map[K]Records {
+	return lo.MapValues(sliceMap, func(slice genq.Slice[Record], _ K) Records {
+		return g.slice(slice)
 	})
+}
+
+func (Group[K]) wrap(group *genq.Group[K, Record]) Group[K] {
+	return Group[K]{
+		group: group,
+	}
+}
+
+func (g Group[K]) unwrap() *genq.Group[K, Record] {
+	return g.group
 }

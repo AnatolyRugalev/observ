@@ -6,7 +6,7 @@ import (
 
 type Metrics struct {
 	T      MetrT        `chaingen:"-"`
-	filter metrq.Filter `chaingen:"wrap(*)=wrapFilter,wrap(*)=wrapGroup"`
+	filter metrq.Filter `chaingen:"-Resolve,wrap(*)=wrapFilter|wrapGroup"`
 }
 
 func (f Metrics) wrapGroup(group metrq.Group[string]) Group[string] {
@@ -37,14 +37,7 @@ func (f Metrics) Require() Require {
 
 type Group[K comparable] struct {
 	T     MetrT          `chaingen:"-"`
-	group metrq.Group[K] `chaingen:"wrap(*)=wrapFilter,wrap(*)=wrapGroup"`
-}
-
-func (g Group[K]) wrapGroup(group metrq.Group[string]) Group[string] {
-	return Group[string]{
-		T:     g.T,
-		group: group,
-	}
+	group metrq.Group[K] `chaingen:"-Resolve,wrap(*)=wrapFilter|wrapGroup"`
 }
 
 func (g Group[K]) wrapFilter(filter metrq.Filter) Metrics {

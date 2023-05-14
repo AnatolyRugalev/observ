@@ -5,6 +5,11 @@
 
 package metrt
 
+func (r RequireGroup[K]) Sum(expected map[K]int64) {
+	r.assert.group.T.t.Helper()
+	r.require(r.assert.Sum(expected))
+}
+
 func (r Require) Value(expected IntOrFloat, msgAndArgs ...any) {
 	r.assert.filter.T.t.Helper()
 	r.require(r.assert.Value(expected, msgAndArgs...))
@@ -53,9 +58,4 @@ func (r Require) SumLess(expected IntOrFloat, msgAndArgs ...any) {
 func (r Require) SumLessOrEqual(expected IntOrFloat, msgAndArgs ...any) {
 	r.assert.filter.T.t.Helper()
 	r.require(r.assert.SumLessOrEqual(expected, msgAndArgs...))
-}
-
-func (r RequireGroup[K]) Sum(expected map[K]int64) {
-	r.assert.group.T.t.Helper()
-	r.require(r.assert.Sum(expected))
 }

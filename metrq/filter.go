@@ -13,7 +13,7 @@ func NewFilter(fn FilterFunc, source Source) Filter {
 }
 
 type Filter struct {
-	filter *genq.Filter[Metric] `chaingen:"-Resolve,wrap(*)=wrap"`
+	filter *genq.Filter[Metric] `chaingen:"-Resolve,wrap(*)=wrap|wrapMetrics"`
 }
 
 func (f Filter) wrap(filter *genq.Filter[Metric]) Filter {
@@ -22,8 +22,8 @@ func (f Filter) wrap(filter *genq.Filter[Metric]) Filter {
 	}
 }
 
-func (f Filter) Metrics() Metrics {
-	return f.Resolve()
+func (f Filter) wrapMetrics(metrics []Metric) Metrics {
+	return metrics
 }
 
 func (f Filter) Resolve() []Metric {

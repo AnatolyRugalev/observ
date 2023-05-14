@@ -3,9 +3,10 @@ package metrq
 import (
 	"github.com/AnatolyRugalev/observ/internal/genq"
 	"github.com/samber/lo"
+	"github.com/AnatolyRugalev/observ/stats"
 )
 
-type Source = genq.Source[Metric]
+type Source = genq.Promise[Metric]
 
 type Metrics []Metric
 
@@ -13,19 +14,12 @@ func (m Metrics) Resolve() []Metric {
 	return m
 }
 
-func (m Metrics) First() *Metric {
-	if len(m) == 0 {
-		return nil
-	}
-	return &m[0]
-}
-
 func (m Metrics) Add(sets ...Source) Metrics {
-	return m.Merge(sets...).AggregateFlat(Sum())
+	return m.Merge(sets...).Stat(stats.Sum)
 }
 
 func (m Metrics) Sub(sets ...Source) Metrics {
-	return m.Merge(sets...).AggregateFlat(Sub())
+	return m.Merge(sets...).Stat(stats.Sub)
 }
 
 func (m Metrics) Merge(with ...Source) Group[MetricKey] {
@@ -40,20 +34,24 @@ func (m Metrics) Group(fn GroupFunc) Group[string] {
 	return NewGroup(fn, m)
 }
 
-func (m Metrics) Floats() []float64 {
-	return lo.Map(m, func(m Metric, index int) float64 {
-		return m.Value
-	})
-}
-
-func (m Metrics) Ints() []int64 {
+func (m Metrics) IntValues() []int64 {
 	return lo.Map(m, func(m Metric, index int) int64 {
 		return int64(m.Value)
 	})
 }
 
 func (m Metrics) IntSum() int64 {
-	return int64(Sum()(intsToFloats(m.Ints())))
+	return int64(stats.Sum(intsToFloats(m.IntValues())))
+}
+
+func (m Metrics) FloatValues() []float64 {
+	return lo.Map(m, func(m Metric, index int) float64 {
+		return m.Value
+	})
+}
+
+func (m Metrics) FloatSum() float64 {
+	return stats.Sum(m.FloatValues())
 }
 
 func intsToFloats(ints []int64) []float64 {
@@ -62,6 +60,10 @@ func intsToFloats(ints []int64) []float64 {
 	})
 }
 
-func (m Metrics) FloatSum() float64 {
-	return Sum()(m.Floats())
+func (m Metrics) First() Metric {
+	return genq.First(m)
+}
+
+func (m Metrics) Last() Metric {
+	return genq.Last(m)
 }

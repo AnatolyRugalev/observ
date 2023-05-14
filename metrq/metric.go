@@ -45,6 +45,8 @@ type Metric struct {
 	Bounds []float64
 }
 
+var Nil = Metric{}
+
 func (m Metric) Key() MetricKey {
 	return MetricKey{
 		Scope:         m.Scope,
@@ -56,4 +58,8 @@ func (m Metric) Key() MetricKey {
 func (m Metric) Clone() Metric {
 	// TODO: do we need a deep copy?
 	return m
+}
+
+func (m Metric) IsNil() bool {
+	return m.Scope == Nil.Scope && m.Name == Nil.Name
 }

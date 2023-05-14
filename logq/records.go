@@ -1,35 +1,29 @@
 package logq
 
-import (
-	"github.com/AnatolyRugalev/observ/internal/genq"
-)
+import "github.com/AnatolyRugalev/observ/internal/genq"
 
-type Source = genq.Source[Record]
+type Promise = genq.Promise[Record]
 
-type Records []Record
+// Records is a slice of records
+// chaingen:"ext(unwrap):*,unwrap=unwrap,wrap(*)=wrap|filter|group"
+type Records genq.Slice[Record]
 
-func (r Records) Resolve() []Record {
-	return r
+func (r Records) unwrap() genq.Slice[Record] {
+	return genq.Slice[Record](r)
 }
 
-func (r Records) First() *Record {
-	if len(r) == 0 {
-		return nil
+func (Records) wrap(slice genq.Slice[Record]) Records {
+	return Records(slice)
+}
+
+func (r Records) filter(filter *genq.Filter[Record]) Filter {
+	return Filter{
+		filter: filter,
 	}
-	return &r[0]
 }
 
-func (r Records) Last() *Record {
-	if len(r) == 0 {
-		return nil
+func (r Records) group(group *genq.Group[string, Record]) Group[string] {
+	return Group[string]{
+		group: group,
 	}
-	return &r[len(r)-1]
-}
-
-func (r Records) Where(operands ...FilterFunc) Filter {
-	return NewFilter(And(operands...), r)
-}
-
-func (r Records) Group(fn GroupFunc) Group[string] {
-	return NewGroup(fn, r)
 }

@@ -62,7 +62,7 @@ func NewOptions(ctx context.Context, duration time.Duration, opts ...Option) Opt
 		Context:        ctx,
 		Duration:       duration,
 		ShouldContinue: waitCount(1),
-		Filter:         logq.True(),
+		Filter:         nil,
 	}
 	for _, opt := range opts {
 		opt(&o)

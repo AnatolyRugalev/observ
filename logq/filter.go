@@ -4,60 +4,50 @@ import (
 	"github.com/AnatolyRugalev/observ/internal/genq"
 )
 
-type FilterFunc = genq.FilterFunc[Record]
+// TODO:
+// 3. Keep methods order
+// 4. Wrap GroupFunc
+// 5. Generic assert for Group
+// 6. More wrappers and codegen...
+// 7. Implement Promise
 
-func NewFilter(fn FilterFunc, source Source) Filter {
+var _ Promise = Filter{}
+
+// chaingen:"ext(Fn):*,wrap(*)=WithFn"
+type Filter struct {
+	filter *genq.Filter[Record] `chaingen:"*,wrap(*)=wrap|slice|group"`
+}
+
+func (f Filter) Resolve() genq.Slice[Record] {
+	return f.filter.Resolve()
+}
+
+func NewFilter(fn FilterFunc, source Promise) Filter {
 	return Filter{
-		filter: genq.NewFilter(fn, source),
+		filter: genq.NewFilter(fn.unwrap(), source),
 	}
 }
 
-type Filter struct {
-	filter *genq.Filter[Record] `chaingen:"-Resolve,wrap(*)=wrap"`
-}
-
-func (f Filter) wrap(filter *genq.Filter[Record]) Filter {
+func (Filter) wrap(filter *genq.Filter[Record]) Filter {
 	return Filter{
 		filter: filter,
 	}
 }
 
-func (f Filter) Records() Records {
-	return f.Resolve()
+func (Filter) slice(slice genq.Slice[Record]) Records {
+	return Records(slice)
 }
 
-func (f Filter) Resolve() []Record {
-	return f.filter.Resolve()
+func (f Filter) group(group *genq.Group[string, Record]) Group[string] {
+	return Group[string]{
+		group: group,
+	}
 }
 
-func (f Filter) Group(fn GroupFunc) Group[string] {
-	return NewGroup(fn, f)
+func (f Filter) Fn() FilterFunc {
+	return FilterFunc(f.filter.Fn())
 }
 
-func (f Filter) Message(msg string) Filter {
-	return f.wrap(f.filter.And(Message(msg)))
-}
-
-func (f Filter) Attr(key string, value any) Filter {
-	return f.wrap(f.filter.And(Attr(key, value)))
-}
-
-func And(operands ...FilterFunc) FilterFunc {
-	return genq.And(operands...)
-}
-
-func Or(operands ...FilterFunc) FilterFunc {
-	return genq.Or(operands...)
-}
-
-func Not(fn FilterFunc) FilterFunc {
-	return genq.Not(fn)
-}
-
-func True() FilterFunc {
-	return genq.True[Record]()
-}
-
-func False() FilterFunc {
-	return genq.False[Record]()
+func (f Filter) WithFn(fn FilterFunc) Filter {
+	return f.wrap(f.filter.WithFn(fn.unwrap()))
 }

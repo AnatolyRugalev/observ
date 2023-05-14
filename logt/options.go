@@ -1,3 +1,5 @@
+//go:build !logt
+
 package logt
 
 import (
@@ -8,7 +10,7 @@ import (
 )
 
 var defaultOptions = options{
-	collectFilter: logq.True(),
+	collectFilter: nil,
 
 	waitTimeout: 5 * time.Second,
 	waitContext: context.Background(),
